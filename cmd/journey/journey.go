@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"journey/internal/api"
 	"journey/internal/api/spec"
+	"journey/internal/mailer/mailpit"
 	"net/http"
 	"os"
 	"os/signal"
@@ -65,9 +66,10 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	si := api.NewApi(pool, logger)
 	r := chi.NewMux()
 	r.Use(middleware.RequestID, middleware.Recoverer, httputils.ChiLogger(logger))
+
+	si := api.NewApi(pool, logger, mailpit.NewMailpit(pool))
 	r.Mount("/", spec.Handler(&si))
 
 	srv := &http.Server{
