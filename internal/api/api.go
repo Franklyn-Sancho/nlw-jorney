@@ -2,11 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"journey/internal/api/spec"
 	"journey/internal/pgstore"
 	"net/http"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,19 +16,25 @@ import (
 )
 
 type store interface {
+	CreateTrip(context.Context, *pgxpool.Pool, spec.CreateTripRequest) (uuid.UUID, error)
 	GetParticipant(ctx context.Context, participantID uuid.UUID) (pgstore.Participant, error)
 	ConfirmParticipant(ctx context.Context, participantID uuid.UUID) error
 }
 
 type API struct {
-	store  store
-	logger *zap.Logger
+	store     store
+	logger    *zap.Logger
+	validator *validator.Validate
+	pool      *pgxpool.Pool
 }
 
 func NewApi(pool *pgxpool.Pool, logger *zap.Logger) API {
+	validator := validator.New(validator.WithRequiredStructEnabled())
 	return API{
 		pgstore.New(pool),
 		logger,
+		validator,
+		pool,
 	}
 }
 
@@ -71,7 +79,21 @@ func (api API) PatchParticipantsParticipantIDConfirm(w http.ResponseWriter, r *h
 // Create a new trip
 // (POST /trips)
 func (api API) PostTrips(w http.ResponseWriter, r *http.Request) *spec.Response {
-	panic("not implemented") // TODO: Implement
+	var body spec.CreateTripRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return spec.PostTripsJSON400Response(spec.Error{Message: "invalid JSON"})
+	}
+
+	if err := api.validator.Struct(body); err != nil {
+		return spec.PostTripsJSON400Response(spec.Error{Message: "invalid input: " + err.Error()})
+	}
+
+	tripID, err := api.store.CreateTrip(r.Context(), api.pool, body)
+	if err != nil {
+		return spec.PostTripsJSON400Response(spec.Error{Message: "failed to create trip, try again" + err.Error()})
+	}
+
+	return spec.PostTripsJSON201Response(spec.CreateTripResponse{TripID: tripID.String()})
 }
 
 // Get a trip details.
